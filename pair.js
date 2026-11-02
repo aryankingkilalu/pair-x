@@ -1,103 +1,116 @@
-const PastebinAPI = require('pastebin-js');
-const pastebin = new PastebinAPI('EMWTMkQAVfJa9kM-MRUrxd5Oku1U7pgL');
+'use strict';
+
 const { makeid } = require('./id');
 const express = require('express');
 const fs = require('fs');
-let router = express.Router();
+const path = require('path');
 const pino = require('pino');
-const {
-    default: ANDREW_Tech,
-    useMultiFileAuthState,
-    delay,
-    makeCacheableSignalKeyStore,
-    Browsers
-} = require('@whiskeysockets/baileys');
 
-function removeFile(FilePath) {
-    if (!fs.existsSync(FilePath)) return false;
-    fs.rmSync(FilePath, { recursive: true, force: true });
+const router = express.Router();
+const AUTH_ROOT = path.join(__dirname, 'temp');
+
+function removeFile(filePath) {
+    if (fs.existsSync(filePath)) {
+        fs.rmSync(filePath, { recursive: true, force: true });
+    }
 }
 
 router.get('/', async (req, res) => {
-    const id = makeid();
-    let num = req.query.number;
-    
-    // Fix 2: Validate number
-    if (!num) {
-        return res.status(400).json({ error: 'Phone number is required' });
-    }
-    
-    async function ANDREW_MD_PAIR_CODE() {
-        const { state, saveCreds } = await useMultiFileAuthState('./temp/' + id);
-        try {
-            let Pair_Code_By_ANDREW_Tech = ANDREW_Tech({
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }).child({ level: 'fatal' })),
-                },
-                printQRInTerminal: false,
-                logger: pino({ level: 'fatal' }).child({ level: 'fatal' }),
-                browser: Browsers.macOS('Chrome'),
-                version: [2, 3000, 1035194821]
-            });
+    const rawNumber = String(req.query.number || '');
+    const number = rawNumber.replace(/[^0-9]/g, '');
 
-            if (!Pair_Code_By_ANDREW_Tech.authState.creds.registered) {
-                await delay(1500);
-                num = num.replace(/[^0-9]/g, '');
-                // Fix 1: Correct variable name
-                const code = await Pair_Code_By_ANDREW_Tech.requestPairingCode(num);
-                if (!res.headersSent) {
-                    await res.send({ code });
+    if (!number || number.length < 7 || number.length > 15) {
+        return res.status(400).json({ error: 'A valid phone number with country code is required.' });
+    }
+
+    const id = makeid(8);
+    const authDir = path.join(AUTH_ROOT, id);
+    let socket;
+    let pairingCodeSent = false;
+
+    try {
+        // Baileys v7 is ESM. Dynamic import avoids converting the Express app.
+        const {
+            default: makeWASocket,
+            useMultiFileAuthState,
+            Browsers
+        } = await import('@whiskeysockets/baileys');
+
+        const { state, saveCreds } = await useMultiFileAuthState(authDir);
+
+        socket = makeWASocket({
+            auth: state,
+            printQRInTerminal: false,
+            logger: pino({ level: 'silent' }),
+            browser: Browsers.macOS('Chrome')
+        });
+
+        socket.ev.on('creds.update', saveCreds);
+
+        socket.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect } = update;
+
+            if (connection === 'open') {
+                console.log('Phone pairing connected:', socket.user?.id || 'unknown');
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                try {
+                    const credsPath = path.join(authDir, 'creds.json');
+                    const data = await fs.promises.readFile(credsPath);
+                    const session = 'Aryan-X:~' + Buffer.from(data).toString('base64');
+
+                    const sent = await socket.sendMessage(socket.user.id, { text: session });
+                    await socket.sendMessage(socket.user.id, {
+                        text: [
+                            '╔════════════════════◇',
+                            '║ SESSION CONNECTED',
+                            '║ ARYAN X ULTRA BOT',
+                            '╚════════════════════╝',
+                            '',
+                            'Your session ID has been sent above.',
+                            'Keep it private and do not share it.'
+                        ].join('\n')
+                    }, { quoted: sent });
+                } catch (error) {
+                    console.error('Could not send pairing session:', error);
+                } finally {
+                    setTimeout(() => {
+                        try { socket.end(undefined); } catch (_) {}
+                        removeFile(authDir);
+                    }, 500);
                 }
             }
 
-            Pair_Code_By_ANDREW_Tech.ev.on('creds.update', saveCreds);
-            Pair_Code_By_ANDREW_Tech.ev.on('connection.update', async (s) => {
-                const { connection, lastDisconnect } = s;
-                if (connection === 'open') {
-                    await delay(5000);
-                    let data = fs.readFileSync(__dirname + `/temp/${id}/creds.json`);
-                    await delay(800);
-                    let b64data = Buffer.from(data).toString('base64');
-                    let session = await Pair_Code_By_ANDREW_Tech.sendMessage(Pair_Code_By_ANDREW_Tech.user.id, { text: 'Aryan-X:~' + b64data });
-
-                    let ANDREW_MD_TEXT = `
-╔════════════════════◇
-║『 SESSION CONNECTED』
-║ ❍AYRAN X ULTRA BOT
-║ ❍AYRAN💀
-╚════════════════════╝
-
-╔════════════════════◇
-║『 YOU'VE CHOSEN AYRAN X ULTRA BOT 』
-║  Set the session ID in Heroku:
-║  SESSION_ID: 
-╚════════════════════╝
-𒂀 Enjoy AYRAN X ULTRA
-
-Don't Forget To Give Star⭐ To My Repo
-_______________________________`;
-
-                    await Pair_Code_By_ANDREW_Tech.sendMessage(Pair_Code_By_ANDREW_Tech.user.id, { text: ANDREW_MD_TEXT }, { quoted: session });
-                    await delay(100);
-                    await Pair_Code_By_ANDREW_Tech.ws.close();
-                    return await removeFile('./temp/' + id);
-                } else if (connection === 'close' && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output.statusCode != 401) {
-                    await delay(10000);
-                    // Fix 3: Add max retries to prevent infinite loop
-                    ANDREW_MD_PAIR_CODE();
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                console.error('Pairing connection closed. Status:', statusCode || 'unknown');
+                if (!res.headersSent && !res.writableEnded) {
+                    res.status(502).json({ error: 'WhatsApp connection closed. Please request a new pairing code.' });
                 }
-            });
-        } catch (err) {
-            console.log('Service restarted:', err.message);
-            await removeFile('./temp/' + id);
+                removeFile(authDir);
+            }
+        });
+
+        if (!state.creds.registered) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            const code = await socket.requestPairingCode(number);
+            pairingCodeSent = true;
+            if (!res.headersSent && !res.writableEnded) {
+                res.status(200).json({ code });
+            }
+        } else {
             if (!res.headersSent) {
-                await res.status(500).send({ code: 'Service Currently Unavailable' });
+                res.status(409).json({ error: 'This temporary session is already registered. Please start again.' });
             }
         }
+    } catch (error) {
+        console.error('Phone pairing error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Pairing service is currently unavailable' });
+        }
+        removeFile(authDir);
+        try { socket?.end(undefined); } catch (_) {}
     }
-    
-    return await ANDREW_MD_PAIR_CODE();
 });
 
 module.exports = router;
