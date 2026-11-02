@@ -19,7 +19,9 @@ app.use('/', async (req, res) => {
 })
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.listen(PORT, () => {
+app.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
+
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`
 Don't Forget To Give Star
 
