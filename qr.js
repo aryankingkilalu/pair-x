@@ -1,111 +1,138 @@
-'use strict';
 
-const { makeid } = require('./id');
+const {makeid} = require('./id');
 const QRCode = require('qrcode');
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
-const pino = require('pino');
+const fs = require('fs');
+let router = express.Router()
+const pino = require("pino");
 
-const router = express.Router();
-const AUTH_ROOT = path.join(__dirname, 'temp');
+function removeFile(FilePath) {
+    if (!fs.existsSync(FilePath)) return false;
+    fs.rmSync(FilePath, {
+        recursive: true,
+        force: true
+    })
+};
 
-function removeFile(filePath) {
-    if (fs.existsSync(filePath)) {
-        fs.rmSync(filePath, { recursive: true, force: true });
-    }
-}
+const {
+    readFile
+} = require("node:fs/promises")
 
-router.get('/', async (_req, res) => {
-    const id = makeid(8);
-    const authDir = path.join(AUTH_ROOT, id);
-    let socket;
+router.get('/', async (req, res) => {
+    const id = makeid();
 
-    try {
-        // Baileys v7 is ESM. Dynamic import keeps the existing Express app
-        // and the rest of this project in CommonJS.
-        const {
-            default: makeWASocket,
-            useMultiFileAuthState,
-            Browsers
-        } = await import('@whiskeysockets/baileys');
+    async function ARYAN_QR_CODE() {
+        try {
+            const {
+                default: Aryan,
+                useMultiFileAuthState,
+                Browsers,
+                delay,
+            } = await import('@whiskeysockets/baileys');
 
-        const { state, saveCreds } = await useMultiFileAuthState(authDir);
+            const {
+                state,
+                saveCreds
+            } = await useMultiFileAuthState('./temp/' + id)
 
-        socket = makeWASocket({
-            auth: state,
-            printQRInTerminal: false,
-            logger: pino({ level: 'silent' }),
-            browser: Browsers.macOS('ARYAN-X')
-        });
+            let AryanSocket = Aryan({
+                auth: state,
+                printQRInTerminal: false,
+                logger: pino({
+                    level: "silent"
+                }),
+                browser: Browsers.macOS("Desktop"),
+            });
 
-        socket.ev.on('creds.update', saveCreds);
+            AryanSocket.ev.on('creds.update', saveCreds)
 
-        socket.ev.on('connection.update', async (update) => {
-            const { connection, qr, lastDisconnect } = update;
+            AryanSocket.ev.on("connection.update", async (s) => {
+                const {
+                    connection,
+                    lastDisconnect,
+                    qr
+                } = s;
 
-            if (qr && !res.headersSent && !res.writableEnded) {
-                try {
-                    const image = await QRCode.toBuffer(qr);
-                    res.setHeader('Content-Type', 'image/png');
-                    res.setHeader('Cache-Control', 'no-store');
-                    res.end(image);
-                } catch (error) {
-                    console.error('QR rendering failed:', error);
-                    if (!res.headersSent) res.status(500).json({ error: 'Unable to render QR code' });
+                if (qr && !res.headersSent) {
+                    res.type('png')
+                        .set('Cache-Control', 'no-store, private')
+                        .send(await QRCode.toBuffer(qr));
                 }
+
+                if (connection == "open") {
+                    await delay(5000);
+
+                    let data = fs.readFileSync(
+                        __dirname + `/temp/${id}/creds.json`
+                    );
+
+                    await delay(800);
+
+                    let b64data = Buffer.from(data).toString('base64');
+
+                    let session = await AryanSocket.sendMessage(
+                        AryanSocket.user.id,
+                        { text: 'Aryan-X:-' + b64data }
+                    );
+
+                    let ARYAN_SESSION_TEXT = `
+╔════════════════════◇
+║『 ARYAN SESSION CONNECTED』
+╚════════════════════╝
+
+
+---
+
+╔════════════════════◇
+║『 YOU'VE CHOSEN ARYAN SESSION』
+║ - Set the session ID in Heroku:
+║ - SESSION_ID:
+╚════════════════════╝
+𒂀 Enjoy Aryan MD
+
+
+---
+
+Don't Forget To Give Star⭐ To My Repo
+______________________________`;
+
+                    await AryanSocket.sendMessage(
+                        AryanSocket.user.id,
+                        { text: ARYAN_SESSION_TEXT },
+                        { quoted: session }
+                    );
+
+                    await delay(100);
+                    await AryanSocket.ws.close();
+
+                    return await removeFile("temp/" + id);
+
+                } else if (
+                    connection === "close" &&
+                    lastDisconnect &&
+                    lastDisconnect.error &&
+                    lastDisconnect.error.output.statusCode != 401
+                ) {
+                    await delay(10000);
+                    ARYAN_QR_CODE();
+                }
+            });
+
+        } catch (err) {
+            if (!res.headersSent) {
+                res.status(503).json({
+                    code: "Service is Currently Unavailable"
+                });
             }
 
-            if (connection === 'open') {
-                console.log('QR session connected:', socket.user?.id || 'unknown');
-                // This endpoint generates a session and sends it to the linked WhatsApp.
-                // Give creds.update time to persist the latest credentials.
-                await new Promise(resolve => setTimeout(resolve, 1500));
-
-                try {
-                    const credsPath = path.join(authDir, 'creds.json');
-                    const data = await fs.promises.readFile(credsPath);
-                    const session = 'ARYAN-X:~' + Buffer.from(data).toString('base64');
-
-                    await socket.sendMessage(socket.user.id, { text: session });
-                    await socket.sendMessage(socket.user.id, {
-                        text: [
-                            '╔════════════════════◇',
-                            '║ SESSION CONNECTED',
-                            '║ ARYAN X ULTRA BOT',
-                            '╚════════════════════╝',
-                            '',
-                            'Your session ID has been sent above.',
-                            'Keep it private and do not share it.'
-                        ].join('\n')
-                    });
-                } catch (error) {
-                    console.error('Could not send QR session:', error);
-                } finally {
-                    setTimeout(() => {
-                        try { socket.end(undefined); } catch (_) {}
-                        removeFile(authDir);
-                    }, 500);
-                }
-            }
-
-            if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                console.error('QR connection closed. Status:', statusCode || 'unknown');
-                if (!res.headersSent && !res.writableEnded) {
-                    res.status(502).json({ error: 'WhatsApp connection closed. Please generate a new QR code.' });
-                }
-                removeFile(authDir);
-            }
-        });
-    } catch (error) {
-        console.error('QR pairing error:', error);
-        if (!res.headersSent) {
-            res.status(500).json({ error: 'QR service is currently unavailable' });
+            console.log(err);
+            await removeFile("temp/" + id);
         }
-        removeFile(authDir);
-        try { socket?.end(undefined); } catch (_) {}
     }
+
+    return await ARYAN_QR_CODE()
 });
 
 module.exports = router;
+                        
