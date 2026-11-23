@@ -1,22 +1,23 @@
 {
-  "name": "JUNE-X Session",
-  "description": "JUNE-X WhatsApp Session Generator - Next-Gen Pairing Service",
-  "logo": "https://files.catbox.moe/lu3bqk.jpg",
-  "repository": "https://github.com/vinpink2/JUNE-X",
-  "keywords": ["whatsapp", "session", "pairing", "june-x"],
+  "name": "Adevos-X Bot Pair Site",
+  "description": "Adevos-X Bot Web Session Generator",
+  "logo": "https://files.catbox.moe/bdwqa7.jpg",
+  "repository": "https://github.com/adevos-x/pair-site",
   "success_url": "/",
   "buildpacks": [
-    { "url": "https://github.com/heroku/heroku-buildpack-nodejs#latest" }
+    {
+      "url": "https://github.com/heroku/heroku-buildpack-nodejs#latest"
+    }
   ],
   "env": {
-    "PORT": {
-      "description": "Port for web app",
-      "value": "5000",
+    "MESSAGE": {
+      "description": "Adevos-X Tech Key Word",
+      "value": "Adevos-X Tech",
       "required": false
     },
-    "NODE_ENV": {
-      "description": "Node environment",
-      "value": "production",
+    "PORT": {
+      "description": "Port for Website",
+      "value": "5000",
       "required": false
     }
   }
